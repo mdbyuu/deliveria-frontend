@@ -4,7 +4,11 @@ import { useAuthStore } from '../stores/auth'
 const shipments = () => import('../views/ShipmentsView.vue')
 const detail = () => import('../views/ShipmentDetailView.vue')
 export const routes = [
-  { path: '/', redirect: '/login' },
+  {
+    path: '/',
+    component: () => import('../views/LandingView.vue'),
+    meta: { title: 'Delivery, made simple' },
+  },
   { path: '/login', component: () => import('../views/LoginView.vue'), meta: { guestOnly: true } },
   {
     path: '/register',
@@ -58,7 +62,8 @@ export function guard(to) {
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: (_to, _from, savedPosition) => savedPosition || { top: 0 },
+  scrollBehavior: (to, _from, savedPosition) =>
+    savedPosition || (to.hash ? { el: to.hash, top: 24 } : { top: 0 }),
 })
 router.beforeEach(guard)
 router.afterEach((to) => {

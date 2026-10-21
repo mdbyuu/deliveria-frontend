@@ -56,7 +56,7 @@ async function submit() {
 <template>
   <main class="auth-layout">
     <section class="auth-story">
-      <RouterLink to="/login" class="brand"
+      <RouterLink to="/" class="brand" aria-label="Deliveria home"
         ><span class="brand-mark"><Icon name="box" :size="25" /></span>deliveria<span
           class="brand-period"
           >.</span

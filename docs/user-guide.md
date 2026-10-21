@@ -2,7 +2,7 @@
 
 ## Sign in and register
 
-Open the app and sign in with your account. New customers choose **Create an account** and provide name, email, phone, and password. Registration creates a Customer account only. Admins create Courier accounts; the backend's setup process provisions Admin accounts.
+The app opens on the public landing page. Choose **Sign in** to access your account, or **Get started** to register. The Deliveria logo on the sign-in and registration pages returns to the landing page. New customers choose **Create an account** and provide name, email, phone, and password. Registration creates a Customer account only. Admins create Courier accounts; the backend's setup process provisions Admin accounts.
 
 Sessions are memory-only. Reloading the browser requires another sign-in. Use the in-page **Refresh** buttons to get current server data. Sign out from the account section in the sidebar; on mobile, open the navigation menu first.
 

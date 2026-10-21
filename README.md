@@ -12,7 +12,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open <http://localhost:5173>. The default API is `https://wad05-deliveria-api.onrender.com/api/v1`. Override `VITE_API_BASE_URL` in `.env.local` for a different API. Vite environment variables are public build-time configuration; never put passwords or secrets in them.
+Open <http://localhost:5173> for the public landing page, then choose **Sign in** or **Get started**. The default API is `https://wad05-deliveria-api.onrender.com/api/v1`. Override `VITE_API_BASE_URL` in `.env.local` for a different API. Vite environment variables are public build-time configuration; never put passwords or secrets in them.
 
 Customer accounts can be created at `/register`. Use an admin-provisioned Courier or Admin account for the corresponding workspace. Credentials are not stored in the repository.
 
