@@ -1,405 +1,276 @@
-
 <script setup>
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../services/api'
-
-const router = useRouter()
-const authStore = useAuthStore()
-
-const shipments = ref([])
-const isLoading = ref(true)
-const errorMessage = ref('')
-const couriers = ref([])
-const selectedCouriers = ref({})
-const assigningShipmentId = ref(null)
-const assignmentMessage = ref('')
-
-function formatStatus(status) {
-  const labels = {
-    placed: 'Menunggu Pickup',
-    picked_up: 'Sudah Diambil',
-    in_transit: 'Dalam Perjalanan',
-    delivered: 'Terkirim',
-  }
-
-  return labels[status] || status || '-'
-}
-
-async function loadShipments() {
-  isLoading.value = true
-  errorMessage.value = ''
-
-  try {
-    const response = await api.get('/admin/shipments')
-    const data = response.data
-
-    shipments.value = Array.isArray(data)
-      ? data
-      : data.items || data.shipments || []
-  } catch (error) {
-    errorMessage.value =
-      error.response?.data?.error?.message ||
-      error.response?.data?.detail ||
-      'Gagal memuat pengiriman.'
-  } finally {
-    isLoading.value = false
-  }
-}
-
-async function loadCouriers() {
-  try {
-    const response = await api.get('/admin/couriers')
-    const data = response.data
-
-    couriers.value = Array.isArray(data)
-      ? data
-      : data.items || data.couriers || []
-  } catch (error) {
-    console.error('Gagal memuat kurir:', error)
-  }
-}
-
-async function assignCourier(shipment) {
-  const courierId = selectedCouriers.value[shipment.id]
-
-  if (!courierId) {
-    alert('Pilih kurir terlebih dahulu.')
+import { dateRangeError, defaultDateRange, errorMessage, formatDate } from '../lib/domain'
+import Icon from '../components/Icon.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import FeedbackMessage from '../components/FeedbackMessage.vue'
+const range = reactive(defaultDateRange()),
+  volume = ref(null),
+  volumeLoading = ref(true),
+  volumeError = ref('')
+const stats = ref(null),
+  recent = ref([]),
+  loading = ref(true),
+  error = ref('')
+const maxCount = computed(() => Math.max(1, ...(volume.value?.points.map((p) => p.count) || [])))
+const peak = computed(() =>
+  volume.value?.points.reduce((best, point) => (point.count > best.count ? point : best), {
+    count: 0,
+    date: '',
+  }),
+)
+async function loadVolume() {
+  if (dateRangeError(range.start_date, range.end_date)) {
+    volumeError.value = dateRangeError(range.start_date, range.end_date)
     return
   }
-
-  if (shipment.version == null) {
-    alert('Versi pengiriman tidak tersedia. Muat ulang data.')
-    return
-  }
-
-  const confirmed = window.confirm(
-    'Tugaskan kurir yang dipilih ke pengiriman ini?'
-  )
-
-  if (!confirmed) return
-
-  assigningShipmentId.value = shipment.id
-  assignmentMessage.value = ''
-
+  volumeLoading.value = true
+  volumeError.value = ''
   try {
-    await api.patch(`/admin/shipments/${shipment.id}/courier`, {
-      courier_id: courierId,
-      expected_version: shipment.version,
-    })
-
-    assignmentMessage.value = 'Kurir berhasil ditugaskan!'
-    await loadShipments()
-  } catch (error) {
-    assignmentMessage.value =
-      error.response?.data?.error?.message ||
-      error.response?.data?.detail ||
-      'Gagal menugaskan kurir.'
+    volume.value = (await api.get('/admin/metrics/delivery-volume', { params: { ...range } })).data
+  } catch (err) {
+    volumeError.value = errorMessage(err, 'Unable to load delivery volume.')
+    volume.value = null
   } finally {
-    assigningShipmentId.value = null
+    volumeLoading.value = false
   }
 }
-
-function logout() {
-  authStore.logout()
-  router.replace('/login')
+async function loadOverview() {
+  loading.value = true
+  error.value = ''
+  try {
+    const results = await Promise.all([
+      api.get('/admin/shipments', { params: { page_size: 5, active_only: true } }),
+      api.get('/admin/shipments', {
+        params: { page_size: 1, unassigned_only: true, active_only: true },
+      }),
+      api.get('/admin/shipments', { params: { page_size: 1, status: 'delivered' } }),
+      api.get('/admin/couriers', { params: { page_size: 1, is_active: true } }),
+    ])
+    stats.value = results.map((r) => r.data.total)
+    recent.value = results[0].data.items
+  } catch (err) {
+    error.value = errorMessage(err, 'Unable to load the overview.')
+    stats.value = null
+    recent.value = []
+  } finally {
+    loading.value = false
+  }
 }
-
-onMounted(() => {
-  loadShipments()
-  loadCouriers()
-})
+function refresh() {
+  loadOverview()
+  loadVolume()
+}
+function shortDate(value) {
+  return new Intl.DateTimeFormat('en-GB', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T00:00:00Z`))
+}
+onMounted(refresh)
 </script>
-
 <template>
-  <main class="admin-page">
-    <header class="admin-header">
-      <div>
-        <p class="eyebrow">DELIVERIA • ADMIN</p>
-        <h1>Dashboard Admin</h1>
-        <p class="subtitle">
-          Halo, {{ authStore.user?.name || 'Admin' }}!
-          Pantau seluruh pengiriman di sini.
-        </p>
-      </div>
-
-      <button class="logout-button" @click="logout">
-        Logout
-      </button>
-    </header>
-
-    <section class="shipments-section">
-      <div class="section-heading">
-        <h2>Semua Pengiriman</h2>
-        <button
-          class="refresh-button"
-          :disabled="isLoading"
-          @click="loadShipments"
-        >
-          Muat Ulang
-        </button>
-      </div>
-
-      <p v-if="isLoading" class="message">
-        Memuat pengiriman...
-      </p>
-
-      <div v-else-if="errorMessage" class="message error">
-        <p>{{ errorMessage }}</p>
-        <button class="refresh-button" @click="loadShipments">
-          Coba Lagi
-        </button>
-      </div>
-
-      <div v-else-if="shipments.length === 0" class="message">
-        Belum ada pengiriman.
-      </div>
-
-      <div v-else class="shipment-list">
-        <article
-          v-for="shipment in shipments"
-          :key="shipment.id"
-          class="shipment-card"
-        >
-          <div class="shipment-heading">
-            <div>
-              <p class="label">Nomor Tracking</p>
-              <h3>{{ shipment.tracking_number || shipment.id }}</h3>
-            </div>
-
-            <span class="status-badge">
-              {{ formatStatus(shipment.current_status) }}
-            </span>
-          </div>
-
-          
-<div class="shipment-info">
-  <p>
-    <strong>Pengirim:</strong>
-    {{ shipment.sender_name || '-' }}
-  </p>
-
-  <p>
-    <strong>Penerima:</strong>
-    {{ shipment.recipient_name || '-' }}
-  </p>
-
-  <p>
-    <strong>Asal:</strong>
-    {{ shipment.origin_address || '-' }}
-  </p>
-
-  <p>
-    <strong>Tujuan:</strong>
-    {{ shipment.destination_address || '-' }}
-  </p>
-
-  <p>
-    <strong>Kurir saat ini:</strong>
-    {{
-      couriers.find(c => c.id === shipment.courier_id)?.name ||
-      (shipment.courier_id
-        ? shipment.courier_id
-        : 'Belum ditugaskan')
-    }}
-  </p>
-
-  <div v-if="shipment.current_status === 'placed'" class="assign-courier">
-    <select
-      v-model="selectedCouriers[shipment.id]"
-      :disabled="assigningShipmentId === shipment.id"
-    >
-      <option value="">-- Pilih Kurir --</option>
-
-      <option
-        v-for="courier in couriers.filter(
-          c => c.is_active && c.role === 'courier'
-        )"
-        :key="courier.id"
-        :value="courier.id"
-      >
-        {{ courier.name }} ({{ courier.email }})
-      </option>
-    </select>
-
-    <button
-      class="refresh-button"
-      :disabled="
-        assigningShipmentId === shipment.id ||
-        !selectedCouriers[shipment.id]
-      "
-      @click="assignCourier(shipment)"
-    >
-      {{
-        assigningShipmentId === shipment.id
-          ? 'Menyimpan...'
-          : 'Tugaskan Kurir'
-      }}
+  <div class="page-heading">
+    <div>
+      <span class="eyebrow">YOUR OPERATIONS, AT A GLANCE</span>
+      <h1>A clear view. A smoother day.</h1>
+      <p class="muted">Stay on top of deliveries and keep your team moving.</p>
+    </div>
+    <button class="button button-secondary" :disabled="loading || volumeLoading" @click="refresh">
+      <Icon name="refresh" :size="17" />Refresh overview
     </button>
   </div>
-  <p v-else class="assignment-message">
-  Kurir hanya dapat ditugaskan atau diganti sebelum pickup.
-  </p>
-  
-  <p
-    v-elseclass="assignmentMessage"
-    class="assignment-message"
-  >
-    {{ assignmentMessage }}
-  </p>
-</div>
-
-        </article>
+  <FeedbackMessage :message="error" />
+  <div class="stat-grid">
+    <RouterLink
+      v-for="(stat, index) in [
+        {
+          label: 'Active deliveries',
+          icon: 'truck',
+          sub: 'Placed, picked up & in transit',
+          to: '/admin/shipments',
+        },
+        {
+          label: 'Awaiting assignment',
+          icon: 'clock',
+          sub: 'Ready for a courier',
+          to: '/admin/shipments?unassigned=true',
+        },
+        {
+          label: 'Delivered',
+          icon: 'check',
+          sub: 'Completed deliveries · all time',
+          to: '/admin/shipments?status=delivered',
+        },
+        {
+          label: 'Active couriers',
+          icon: 'users',
+          sub: 'Your delivery team',
+          to: '/admin/couriers',
+        },
+      ]"
+      :key="stat.label"
+      :to="stat.to"
+      class="stat-card"
+      ><div class="stat-top">
+        <span>{{ stat.label }}</span
+        ><span class="stat-icon" :class="`stat-${index}`"
+          ><Icon :name="stat.icon" :size="20"
+        /></span>
       </div>
-    </section>
-  </main>
+      <strong>{{ loading ? '…' : (stats?.[index] ?? '—') }}</strong
+      ><small>{{ stat.sub }}</small></RouterLink
+    >
+  </div>
+  <section class="panel volume-panel">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">DELIVERY VOLUME</span>
+        <h2>Shipments created</h2>
+        <p class="muted">All requests by creation date, regardless of delivery status.</p>
+      </div>
+      <span class="chart-legend"><span />Shipments created</span>
+    </div>
+    <form class="filters date-filters" @submit.prevent="loadVolume">
+      <div class="form-field">
+        <label for="start-date">Start date</label
+        ><input id="start-date" v-model="range.start_date" type="date" required />
+      </div>
+      <span class="date-separator">to</span>
+      <div class="form-field">
+        <label for="end-date">End date</label
+        ><input id="end-date" v-model="range.end_date" type="date" required />
+      </div>
+      <button class="button button-secondary" :disabled="volumeLoading">Apply range</button
+      ><span class="muted small">Inclusive dates · Asia/Jakarta</span>
+    </form>
+    <div v-if="volumeLoading" class="state-block" role="status">
+      <span class="spinner" />Loading shipment volume…
+    </div>
+    <div v-else-if="volumeError" class="panel-body">
+      <FeedbackMessage :message="volumeError" /><button
+        class="button button-secondary"
+        @click="loadVolume"
+      >
+        Try again
+      </button>
+    </div>
+    <template v-else-if="volume"
+      ><div class="chart-summary">
+        <strong>{{ volume.total.toLocaleString() }}<span> shipments created</span></strong
+        ><span class="muted small"
+          >{{ shortDate(volume.start_date) }} — {{ shortDate(volume.end_date) }} ·
+          {{ volume.points.length }} days</span
+        >
+      </div>
+      <p v-if="volume.total === 0" class="chart-empty">
+        No shipments were created in this date range. Zero-volume dates are shown below.
+      </p>
+      <div class="chart-container">
+        <div class="chart-y-axis" aria-hidden="true">
+          <span>{{ maxCount }}</span
+          ><span>{{ Math.round(maxCount / 2) }}</span
+          ><span>0</span>
+        </div>
+        <div class="chart-scroll">
+          <div
+            class="bar-chart"
+            :style="{ minWidth: `${Math.max(300, volume.points.length * 15)}px` }"
+            role="img"
+            :aria-label="`Shipments created from ${volume.start_date} to ${volume.end_date}: ${volume.total} total. Daily counts are available in the data table below.`"
+          >
+            <div v-for="(point, index) in volume.points" :key="point.date" class="chart-column">
+              <div class="bar-area">
+                <div
+                  class="chart-bar"
+                  :style="{ height: `${(point.count / maxCount) * 100}%` }"
+                  :title="`${point.date}: ${point.count} shipments`"
+                />
+              </div>
+              <span class="chart-date">{{
+                index === 0 ||
+                index === volume.points.length - 1 ||
+                index % Math.max(1, Math.ceil(volume.points.length / 7)) === 0
+                  ? shortDate(point.date)
+                  : ''
+              }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-footer">
+        <span>Daily count · Includes days with zero shipments</span
+        ><span v-if="peak?.count"
+          >Busiest day: {{ shortDate(peak.date) }} · {{ peak.count }} shipments</span
+        >
+      </div>
+      <details class="chart-data">
+        <summary>View daily counts</summary>
+        <div class="data-table-wrap">
+          <table>
+            <caption>
+              Shipments created · Asia/Jakarta
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Shipments</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="point in volume.points" :key="point.date">
+                <td>{{ point.date }}</td>
+                <td>{{ point.count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details></template
+    >
+  </section>
+  <section class="panel list-panel">
+    <div class="panel-heading">
+      <div>
+        <h2>Active deliveries</h2>
+        <p class="muted">The five most recently created active shipments.</p>
+      </div>
+      <RouterLink class="detail-link" to="/admin/shipments"
+        >View all shipments<Icon name="arrow" :size="16"
+      /></RouterLink>
+    </div>
+    <div v-if="loading" class="state-block" role="status">Loading deliveries…</div>
+    <div v-else-if="error" class="state-block">
+      <button class="button button-secondary" @click="loadOverview">Retry overview</button>
+    </div>
+    <div v-else-if="!recent.length" class="state-block">
+      <Icon name="check" :size="30" />
+      <h3>All caught up.</h3>
+      <p class="muted">New active shipments will appear here.</p>
+    </div>
+    <div v-else class="shipment-rows">
+      <article v-for="shipment in recent" :key="shipment.id" class="shipment-row overview-row">
+        <div class="shipment-identity">
+          <span class="package-icon"><Icon name="box" /></span>
+          <div>
+            <RouterLink class="tracking-link" :to="`/admin/shipments/${shipment.id}`">{{
+              shipment.tracking_number
+            }}</RouterLink
+            ><small
+              >{{ formatDate(shipment.created_at, true) }} · {{ shipment.customer?.name }}</small
+            >
+          </div>
+        </div>
+        <div class="shipment-person">
+          <strong>{{ shipment.recipient_name }}</strong
+          ><small>{{ shipment.destination_address }}</small>
+        </div>
+        <span :class="shipment.courier ? 'muted small' : 'unassigned small'">{{
+          shipment.courier?.name || 'Unassigned courier'
+        }}</span
+        ><StatusBadge :status="shipment.current_status" />
+      </article>
+    </div>
+  </section>
 </template>
-
-<style scoped>
-.admin-page {
-  min-height: 100vh;
-  padding: 32px;
-  background: #f5f7fb;
-  color: #172033;
-}
-
-.admin-header,
-.section-heading,
-.shipment-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.admin-header,
-.shipments-section {
-  max-width: 1000px;
-  margin: 0 auto;
-}
-
-.admin-header {
-  margin-bottom: 32px;
-}
-
-.eyebrow {
-  color: #5267c8;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-}
-
-h1 {
-  margin: 8px 0;
-  font-size: 32px;
-}
-
-.subtitle,
-.label {
-  color: #657087;
-}
-
-.section-heading {
-  margin-bottom: 20px;
-}
-
-.shipment-list {
-  display: grid;
-  gap: 16px;
-}
-
-.shipment-card,
-.message {
-  padding: 24px;
-  border: 1px solid #e2e7f0;
-  border-radius: 14px;
-  background: white;
-}
-
-.shipment-heading h3 {
-  overflow-wrap: anywhere;
-  font-size: 16px;
-}
-
-.status-badge {
-  padding: 7px 11px;
-  border-radius: 20px;
-  background: #e8edff;
-  color: #3449a3;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.shipment-info {
-  margin-top: 18px;
-  overflow-wrap: anywhere;
-}
-
-.error {
-  color: #a52828;
-}
-
-.refresh-button,
-.logout-button {
-  padding: 10px 15px;
-  border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.refresh-button {
-  background: #e8edff;
-  color: #3449a3;
-}
-
-.logout-button {
-  background: #fee9e9;
-  color: #a52828;
-}
-
-.assign-courier {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.assign-courier select {
-  flex: 1;
-  min-width: 200px;
-  padding: 10px;
-  border: 1px solid #d5dbea;
-  border-radius: 8px;
-  background: white;
-  color: #172033;
-}
-
-.refresh-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.assignment-message {
-  margin-top: 10px;
-  overflow-wrap: anywhere;
-  color: #3449a3;
-}
-
-@media (max-width: 600px) {
-  .admin-page {
-    padding: 20px 14px;
-  }
-
-  .admin-header,
-  .shipment-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  h1 {
-    font-size: 25px;
-  }
-}
-</style>

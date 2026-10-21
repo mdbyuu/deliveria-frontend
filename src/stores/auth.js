@@ -1,50 +1,41 @@
-
 import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+import { dashboardPath } from '../lib/domain'
 
-export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    accessToken: sessionStorage.getItem('access_token') || null,
-    user: (() => {
-      try {
-        return JSON.parse(sessionStorage.getItem('user') || 'null')
-      } catch {
-        return null
-      }
-    })(),
-    expiresAt: Number(sessionStorage.getItem('expires_at')) || null,
-  }),
-
-  getters: {
-    isLoggedIn: (state) =>
-      Boolean(
-        state.accessToken &&
-        state.user?.role &&
-        state.expiresAt &&
-        state.expiresAt > Date.now()
-      ),
-
-    role: (state) => state.user?.role || null,
-  },
-
-  actions: {
-    login(data) {
-      this.accessToken = data.access_token
-      this.user = data.user
-      this.expiresAt = Date.now() + data.expires_in * 1000
-
-      sessionStorage.setItem('access_token', this.accessToken)
-      sessionStorage.setItem('user', JSON.stringify(this.user))
-      sessionStorage.setItem('expires_at', String(this.expiresAt))
-    },
-
-    logout() {
-      this.accessToken = null
-      this.user = null
-      this.expiresAt = null
-
-      sessionStorage.removeItem('access_token')
-      sessionStorage.removeItem('user')
-      sessionStorage.removeItem('expires_at')
-    },
-  },
+// Deliberately memory-only: follows the API's documented token-storage policy.
+export const useAuthStore = defineStore('auth', () => {
+  const accessToken = ref(null)
+  const user = ref(null)
+  const expiresAt = ref(null)
+  const notice = ref('')
+  let expiryTimer
+  const role = computed(() => user.value?.role || null)
+  const isLoggedIn = computed(() =>
+    Boolean(accessToken.value && user.value && expiresAt.value > Date.now()),
+  )
+  const home = computed(() => dashboardPath(role.value))
+  function logout(message = '') {
+    clearTimeout(expiryTimer)
+    accessToken.value = null
+    user.value = null
+    expiresAt.value = null
+    notice.value = message
+  }
+  function login(data) {
+    if (
+      !data.access_token ||
+      !['customer', 'courier', 'admin'].includes(data.user?.role) ||
+      !(data.expires_in > 0)
+    )
+      throw new Error('Invalid login response')
+    logout()
+    accessToken.value = data.access_token
+    user.value = data.user
+    expiresAt.value = Date.now() + data.expires_in * 1000
+    expiryTimer = setTimeout(expire, data.expires_in * 1000)
+  }
+  function expire() {
+    logout('Your session has expired. Please sign in again.')
+  }
+  return { accessToken, user, expiresAt, notice, role, isLoggedIn, home, login, logout, expire }
 })

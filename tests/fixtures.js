@@ -1,0 +1,27 @@
+export const shipment = {
+  id: 'shipment-1',
+  tracking_number: 'DLV-TEST-001',
+  current_status: 'placed',
+  version: 2,
+  sender_name: 'Demo Sender',
+  sender_phone: '08123456789',
+  origin_address: 'Fictional Jakarta address 1',
+  recipient_name: 'Demo Recipient',
+  recipient_phone: '+62 812 3456',
+  destination_address: 'Fictional Bandung address 2',
+  package_description: 'Books',
+  weight_kg: '1.250',
+  created_at: '2026-10-20T01:00:00Z',
+  courier_id: 'courier-1',
+  courier: { id: 'courier-1', name: 'Demo Courier', phone: '08123456789' },
+  customer: { id: 'customer-1', name: 'Demo Customer', phone: '08123456789' },
+  history: [{ id: 'history-1', status: 'placed', occurred_at: '2026-10-20T01:00:00Z' }],
+}
+export const page = (items, overrides = {}) => ({
+  items,
+  total: items.length,
+  page: 1,
+  page_size: 12,
+  pages: items.length ? 1 : 0,
+  ...overrides,
+})
